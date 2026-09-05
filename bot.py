@@ -27,7 +27,7 @@ REPORT_MINUTE = int(os.getenv("REPORT_MINUTE", "0"))
 DATA_FILE = "raporlar.xlsx"
 
 # Historical Telegram export converted to Excel
-HISTORY_FILE = "raporlar_tarih_2026_2.xlsx"
+HISTORY_FILE = "raporlar_tarih_2026.xlsx"
 
 SITES = [
     "DATA CENTER", "DMC", "LOT13", "LOT71", "SKP", "STADYUM",
@@ -147,261 +147,71 @@ def status_text():
 
 
 def history_rows():
-
     if not os.path.exists(HISTORY_FILE):
-
         return []
 
     wb = load_workbook(HISTORY_FILE, read_only=True, data_only=True)
+    ws = wb["Raporlar"]
 
     rows = []
-
-    date_pattern = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b")
-
-    for ws in wb.worksheets:
-
-        for excel_row in ws.iter_rows(values_only=True):
-
-            values = [str(v).strip() for v in excel_row if v not in (None, "")]
-
-            if not values:
-
-                continue
-
-            full_text = " | ".join(values)
-
-            # Sanani topish
-
-            m = date_pattern.search(full_text)
-
-            if not m:
-
-                continue
-
-            day, month, year = m.groups()
-
-            try:
-
-                date_obj = datetime(
-
-                    int(year),
-
-                    int(month),
-
-                    int(day)
-
-                )
-
-            except ValueError:
-
-                continue
-
-            date_str = date_obj.strftime("%d.%m.%Y")
-
-            # Şantiye aniqlash
-
-            site = detect_site(full_text)
-
-            # Ishchilar soni
-
-            workers = detect_total_workers(full_text)
-
-            # Agar sayt topilmasa, bu qatorni ham saqlaymiz,
-
-            # chunki keyinchalik matn bo'yicha qidirish mumkin.
-
-            rows.append((
-
-                date_str,
-
-                site or "",
-
-                workers if workers is not None else "",
-
-                "",
-
-                str(ws.title),
-
-                full_text
-
-            ))
-
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        # [Tarih, Şantiye, Genel Toplam, Gönderen, Telegram Zamanı, Rapor Metni]
+        if row and row[0] and row[5]:
+            rows.append(row)
     return rows
 
+
 def search_history(query):
-
     query = str(query or "").strip()
-
     if not query:
-
         return []
 
     nq = normalize(query)
-
     rows = history_rows()
 
-    # Sana bo'yicha qidiruv
-
-    dates = re.findall(
-
-        r"\b\d{1,2}[./-]\d{1,2}[./-]\d{4}\b",
-
-        query
-
-    )
+    # Exact date/range support:
+    # 05.09.2026
+    # 05/09/2026
+    # 01.01.2026 - 05.09.2026
+    dates = re.findall(r"\b\d{1,2}[./]\d{1,2}[./]\d{4}\b", query)
 
     if len(dates) == 1:
-
-        target = dates[0].replace("/", ".").replace("-", ".")
-
-        try:
-
-            target_dt = datetime.strptime(
-
-                target,
-
-                "%d.%m.%Y"
-
-            ).date()
-
-        except ValueError:
-
-            return []
-
+        target = dates[0].replace("/", ".")
+        target_dt = datetime.strptime(target, "%d.%m.%Y").date()
         filtered = []
-
         for row in rows:
-
             try:
-
-                row_dt = datetime.strptime(
-
-                    row[0],
-
-                    "%d.%m.%Y"
-
-                ).date()
-
-                if row_dt == target_dt:
-
+                d = datetime.strptime(str(row[0]), "%d.%m.%Y").date()
+                if d == target_dt:
                     filtered.append(row)
-
             except Exception:
-
                 pass
-
-        return filtered
-
-    # Sana oralig'i
-
-    if len(dates) >= 2:
-
-        try:
-
-            start = datetime.strptime(
-
-                dates[0].replace("/", ".").replace("-", "."),
-
-                "%d.%m.%Y"
-
-            ).date()
-
-            end = datetime.strptime(
-
-                dates[1].replace("/", ".").replace("-", "."),
-
-                "%d.%m.%Y"
-
-            ).date()
-
-        except ValueError:
-
-            return []
-
+        rows = filtered
+    elif len(dates) >= 2:
+        start = datetime.strptime(dates[0].replace("/", "."), "%d.%m.%Y").date()
+        end = datetime.strptime(dates[1].replace("/", "."), "%d.%m.%Y").date()
         if start > end:
-
             start, end = end, start
-
         filtered = []
-
         for row in rows:
-
             try:
-
-                row_dt = datetime.strptime(
-
-                    row[0],
-
-                    "%d.%m.%Y"
-
-                ).date()
-
-                if start <= row_dt <= end:
-
+                d = datetime.strptime(str(row[0]), "%d.%m.%Y").date()
+                if start <= d <= end:
                     filtered.append(row)
-
             except Exception:
-
                 pass
+        rows = filtered
+    else:
+        # General search: site, date fragments, sender, or report text.
+        rows = [
+            row for row in rows
+            if nq in normalize(" ".join(str(x or "") for x in row))
+        ]
 
-        return filtered
+    return rows
 
-    # Shantiye / matn / ism bo'yicha qidiruv
-
-    filtered = []
-
-    for row in rows:
-
-        searchable = " ".join(
-
-            str(x or "")
-
-            for x in row
-
-        )
-
-        if nq in normalize(searchable):
-
-            filtered.append(row)
-
-    return filtered
 
 def format_history_results(rows, limit=10):
-
-    if not rows:
-
-        return "🔎 Рапорт топилмади."
-
-    shown = rows[:limit]
-
-    text = f"🔎 Топилди: {len(rows)} та рапорт"
-
-    if len(rows) > limit:
-
-        text += f"\n📌 Биринчи {limit} таси кўрсатилмоқда."
-
-    text += "\n\n"
-
-    for row in shown:
-
-        date = row[0] or "—"
-
-        site = row[1] or "Шантиё аниқланмади"
-
-        workers = row[2] if row[2] not in (None, "") else "—"
-
-        report = row[5] or ""
-
-        if len(report) > 250:
-
-            report = report[:250] + "..."
-            text += f"📅 {date}\n"
-
-        text += f"📍 {site}\n"
-
-        text += f"👷 {workers}\n"
-
-        text += f"📝 {report}\n\n"
     if not rows:
         return "🔎 Рапорт топилмади."
 
