@@ -23,6 +23,14 @@ TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 HISTORY_FILE = "raporlar_tarih_2026_2.xlsx"
 LIVE_FILE = "raporlar.xlsx"
 
+# Excel fayl nomi turlicha bo'lsa ham topishga harakat qiladi
+HISTORY_FILES = [
+    "raporlar_tarih_2026_2.xlsx",
+    "raporlar_tarih_2026_2(1).xlsx",
+    "raporlar_2026_2.xlsx",
+    "raporlar.xlsx",
+]
+
 REPORT_HOUR = int(os.getenv("REPORT_HOUR", "15"))
 REPORT_MINUTE = int(os.getenv("REPORT_MINUTE", "0"))
 
@@ -114,19 +122,29 @@ def ensure_excel():
     ])
     wb.save(HISTORY_FILE)
 
+def get_history_file():
+    for filename in HISTORY_FILES:
+        if os.path.exists(filename):
+            return filename
+    return None
+
 def search_excel(start_date=None, end_date=None, site=None, keyword=None):
-    if not os.path.exists(HISTORY_FILE):
+    filename = get_history_file()
+    if not filename:
+        print("Excel topilmadi. Qidirilgan fayllar:", HISTORY_FILES)
         return []
 
     try:
-        wb = load_workbook(HISTORY_FILE, read_only=True, data_only=True)
+        wb = load_workbook(filename, read_only=True, data_only=True)
     except Exception as e:
         print("Excel ochishda xato:", e)
         return []
 
     results = []
 
-    for ws in wb.worksheets:
+    # Asosiy ma'lumotlar aynan Raporlar varag'ida
+    sheets = [wb["Raporlar"]] if "Raporlar" in wb.sheetnames else wb.worksheets
+    for ws in sheets:
         rows = ws.iter_rows(values_only=True)
         try:
             headers = next(rows)
@@ -138,7 +156,7 @@ def search_excel(start_date=None, end_date=None, site=None, keyword=None):
         site_col = find_column(headers, ["Şantiye", "Shantiye", "Шантиё"])
         sender_col = find_column(headers, ["Gönderen", "Yuboruvchi", "Sender", "Отправитель"])
         worker_col = find_column(headers, ["İşçi Sayısı", "Ishchi Sonı", "Рабочие", "Количество рабочих"])
-        text_col = find_column(headers, ["Rapor Metni", "Rapor", "Hisobot", "Report", "Сообщение"])
+        text_col = find_column(headers, ["Rapor Metni", "Rapor", "Hisobot", "Report", "Сообщение", "Toliq_raport", "Toliq raport"])
         message_id_col = find_column(headers, ["Mesaj ID", "Message ID", "ID"])
 
         for row in rows:
@@ -160,7 +178,7 @@ def search_excel(start_date=None, end_date=None, site=None, keyword=None):
             if site_col is not None and site_col < len(row):
                 row_site = str(row[site_col] or "").strip()
 
-            if site and normalize(site) != normalize(row_site) and normalize(site) not in normalize(row_site):
+            if site and normalize(site) != normalize(row_site):
                 continue
 
             all_text = " ".join(str(x or "") for x in row)
@@ -261,11 +279,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
             await update.message.reply_text("⛔ Бу бўлим фақат администратор учун.")
             return
-        if not os.path.exists(HISTORY_FILE):
+        filename = get_history_file()
+        if not filename:
             await update.message.reply_text("⚠️ Excel файл топилмади.")
             return
-        with open(HISTORY_FILE, "rb") as f:
-            await update.message.reply_document(f, filename=HISTORY_FILE)
+        with open(filename, "rb") as f:
+            await update.message.reply_document(f, filename=filename)
         return
 
     if not context.user_data.get("search_mode"):
