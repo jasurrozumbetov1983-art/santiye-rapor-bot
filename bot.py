@@ -27,7 +27,7 @@ REPORT_MINUTE = int(os.getenv("REPORT_MINUTE", "0"))
 DATA_FILE = "raporlar.xlsx"
 
 # Historical Telegram export converted to Excel
-HISTORY_FILE = "raporlar_tarih_2026.xlsx"
+HISTORY_FILE = "raporlar_tarih_2026_.xlsx"
 
 SITES = [
     "DATA CENTER", "DMC", "LOT13", "LOT71", "SKP", "STADYUM",
