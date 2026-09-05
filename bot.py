@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -20,246 +20,225 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
+HISTORY_FILE = "raporlar_tarih_2026_2.xlsx"
+LIVE_FILE = "raporlar.xlsx"
+
 REPORT_HOUR = int(os.getenv("REPORT_HOUR", "15"))
 REPORT_MINUTE = int(os.getenv("REPORT_MINUTE", "0"))
 
-# Current/live reports file
-DATA_FILE = "raporlar.xlsx"
-
-# Historical Telegram export converted to Excel
-HISTORY_FILE = "raporlar_tarih_2026.xlsx"
-
 SITES = [
     "DATA CENTER", "DMC", "LOT13", "LOT71", "SKP", "STADYUM",
-    "BWC", "KÖKSARAY", "PMP", "MOS", "PİRAMİT", "RMC", "TYM", "YHP"
+    "BWC", "KÖKSARAY", "MPP", "MOS", "PİRAMİT", "RMC", "TYM",
+    "YHP", "ELLIPSE GARDEN"
 ]
 
 ALIASES = {
-    "DATA CENTER": "DATA CENTER", "DATA CENTER": "DATA CENTER",
+    "DATA CENTER": "DATA CENTER",
+    "DMC": "DMC",
+    "LOT13": "LOT13", "LOT 13": "LOT13",
+    "LOT71": "LOT71", "LOT 71": "LOT71",
+    "SKP": "SKP",
     "STADIUM": "STADYUM", "STADYUM": "STADYUM",
-    "PIRAMIT": "PİRAMİT", "PİRAMİT": "PİRAMİT",
-    "PIRAMIT TOWER": "PİRAMİT", "PİRAMİT TOWER": "PİRAMİT",
-    "BWC": "BWC", "SKP": "SKP", "LOT71": "LOT71", "LOT13": "LOT13",
-    "DMC": "DMC", "PMP": "PMP", "MOS": "MOS", "RMC": "RMC",
-    "TYM": "TYM", "YHP": "YHP",
+    "PIRAMIT": "PİRAMİТ", "PİRAMİT": "PİРАМИТ",
+    "PIRAMIT TOWER": "PİРАМИТ", "PİRAMİT TOWER": "PİРАМИТ",
+    "BWC": "BWC",
     "KOKSARAY": "KÖKSARAY", "KÖKSARAY": "KÖKSARAY",
-    "ELLIPSE GARDEN": "ELLIPSE GARDEN",
+    "MPP": "MPP", "MOS": "MOS", "RMC": "RMC", "TYM": "TYM",
+    "YHP": "YHP", "ELLIPSE GARDEN": "ELLIPSE GARDEN",
 }
 
-if "ELLIPSE GARDEN" not in SITES:
-    SITES.append("ELLIPSE GARDEN")
-
 MENU = ReplyKeyboardMarkup(
-    [["📊 Rapor Durumu", "📥 Excel"], ["🔎 Rapor Ara"]],
+    [["🔎 Rapor Ara"], ["📊 Rapor Durumu", "📥 Excel"]],
     resize_keyboard=True
 )
 
-
-def normalize(s):
-    return (
-        str(s or "").upper()
-        .replace("İ", "I")
-        .replace("Ş", "S")
-        .replace("Ğ", "G")
-        .replace("Ü", "U")
-        .replace("Ö", "O")
-        .replace("Ç", "C")
-    )
-
+def normalize(text):
+    if text is None:
+        return ""
+    text = str(text).upper()
+    for old, new in {
+        "İ": "I", "Ş": "S", "Ğ": "G", "Ü": "U",
+        "Ö": "O", "Ç": "C", "Ə": "E"
+    }.items():
+        text = text.replace(old, new)
+    return text.strip()
 
 def detect_site(text):
     n = normalize(text)
-    for alias, site in sorted(ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+    for alias, site in sorted(
+        ALIASES.items(),
+        key=lambda x: len(normalize(x[0])),
+        reverse=True
+    ):
         if normalize(alias) in n:
             return site
     return None
 
-
-def detect_total_workers(text):
-    n = normalize(text)
-    patterns = [
-        r"GENEL\s+TOPLAM\s*[:\-]?\s*(\d+)\s*(?:KISI|KİŞİ)?",
-        r"GENEL TOPLAM.*?(\d+)",
-        r"TOPLAM\s*[:\-]?\s*(\d+)\s*(?:KISI|KİŞİ)",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, n, re.S)
-        if m:
-            try:
-                return int(m.group(1))
-            except ValueError:
-                pass
+def parse_date(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    for fmt in [
+        "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y",
+        "%Y-%m-%d", "%Y.%m.%d", "%d.%m.%y"
+    ]:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
     return None
 
+def find_column(headers, names):
+    normalized_headers = {}
+    for index, header in enumerate(headers):
+        if header is not None:
+            normalized_headers[normalize(header)] = index
+    for name in names:
+        if normalize(name) in normalized_headers:
+            return normalized_headers[normalize(name)]
+    return None
 
 def ensure_excel():
-    if os.path.exists(DATA_FILE):
+    if os.path.exists(HISTORY_FILE):
         return
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Raporlar"
-    ws.append(["Tarih", "Saat", "Şantiye", "Gönderen", "İşçi Sayısı", "Rapor Metni", "Mesaj ID"])
-    wb.save(DATA_FILE)
-
-
-def save_report(site, sender, workers, text, msg_id):
-    ensure_excel()
-    wb = load_workbook(DATA_FILE)
-    ws = wb["Raporlar"]
-    now = datetime.now(TZ)
     ws.append([
-        now.strftime("%d.%m.%Y"),
-        now.strftime("%H:%M"),
-        site,
-        sender,
-        workers if workers is not None else "",
-        text,
-        msg_id,
+        "Tarih", "Saat", "Şantiye", "Gönderen",
+        "İşçi Sayısı", "Rapor Metni", "Mesaj ID"
     ])
-    wb.save(DATA_FILE)
+    wb.save(HISTORY_FILE)
 
-
-def today_reports():
-    ensure_excel()
-    wb = load_workbook(DATA_FILE, read_only=True)
-    ws = wb["Raporlar"]
-    today = datetime.now(TZ).strftime("%d.%m.%Y")
-    result = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[0] == today and row[2]:
-            result[row[2]] = row
-    return result
-
-
-def status_text():
-    reports = today_reports()
-    sent = [s for s in SITES if s in reports]
-    missing = [s for s in SITES if s not in reports]
-
-    t = f"🕒 {datetime.now(TZ).strftime('%H:%M')} Şantiye Rapor Durumu\n\n"
-    t += f"✅ Rapor ileten şantiyeler ({len(sent)}):\n"
-    t += ", ".join(sent) if sent else "Menü yok"
-    t += f"\n\n❌ Rapor iletmeyen şantiyeler ({len(missing)}):\n"
-    t += ", ".join(missing) if missing else "Eksik rapor yok"
-    t += "\n\n📌 Not: Yapılan işin raporunu vermek, işi yapmak kadar önemlidir."
-    return t
-
-
-def history_rows():
+def search_excel(start_date=None, end_date=None, site=None, keyword=None):
     if not os.path.exists(HISTORY_FILE):
         return []
 
-    wb = load_workbook(HISTORY_FILE, read_only=True, data_only=True)
-    ws = wb["Raporlar"]
-
-    rows = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        # [Tarih, Şantiye, Genel Toplam, Gönderen, Telegram Zamanı, Rapor Metni]
-        if row and row[0] and row[5]:
-            rows.append(row)
-    return rows
-
-
-def search_history(query):
-    query = str(query or "").strip()
-    if not query:
+    try:
+        wb = load_workbook(HISTORY_FILE, read_only=True, data_only=True)
+    except Exception as e:
+        print("Excel ochishda xato:", e)
         return []
 
-    nq = normalize(query)
-    rows = history_rows()
+    results = []
 
-    # Exact date/range support:
-    # 05.09.2026
-    # 05/09/2026
-    # 01.01.2026 - 05.09.2026
-    dates = re.findall(r"\b\d{1,2}[./]\d{1,2}[./]\d{4}\b", query)
+    for ws in wb.worksheets:
+        rows = ws.iter_rows(values_only=True)
+        try:
+            headers = next(rows)
+        except StopIteration:
+            continue
 
-    if len(dates) == 1:
-        target = dates[0].replace("/", ".")
-        target_dt = datetime.strptime(target, "%d.%m.%Y").date()
-        filtered = []
+        date_col = find_column(headers, ["Tarih", "Sana", "Date", "Дата"])
+        time_col = find_column(headers, ["Saat", "Vaqt", "Time", "Время"])
+        site_col = find_column(headers, ["Şantiye", "Shantiye", "Шантиё"])
+        sender_col = find_column(headers, ["Gönderen", "Yuboruvchi", "Sender", "Отправитель"])
+        worker_col = find_column(headers, ["İşçi Sayısı", "Ishchi Sonı", "Рабочие", "Количество рабочих"])
+        text_col = find_column(headers, ["Rapor Metni", "Rapor", "Hisobot", "Report", "Сообщение"])
+        message_id_col = find_column(headers, ["Mesaj ID", "Message ID", "ID"])
+
         for row in rows:
-            try:
-                d = datetime.strptime(str(row[0]), "%d.%m.%Y").date()
-                if d == target_dt:
-                    filtered.append(row)
-            except Exception:
-                pass
-        rows = filtered
-    elif len(dates) >= 2:
-        start = datetime.strptime(dates[0].replace("/", "."), "%d.%m.%Y").date()
-        end = datetime.strptime(dates[1].replace("/", "."), "%d.%m.%Y").date()
-        if start > end:
-            start, end = end, start
-        filtered = []
-        for row in rows:
-            try:
-                d = datetime.strptime(str(row[0]), "%d.%m.%Y").date()
-                if start <= d <= end:
-                    filtered.append(row)
-            except Exception:
-                pass
-        rows = filtered
-    else:
-        # General search: site, date fragments, sender, or report text.
-        rows = [
-            row for row in rows
-            if nq in normalize(" ".join(str(x or "") for x in row))
-        ]
+            if not row:
+                continue
 
-    return rows
+            row_date = None
+            if date_col is not None and date_col < len(row):
+                row_date = parse_date(row[date_col])
 
+            if (start_date or end_date) and row_date is None:
+                continue
+            if start_date and row_date < start_date:
+                continue
+            if end_date and row_date > end_date:
+                continue
 
-def format_history_results(rows, limit=10):
-    if not rows:
-        return "🔎 Рапорт топилмади."
+            row_site = ""
+            if site_col is not None and site_col < len(row):
+                row_site = str(row[site_col] or "").strip()
 
-    shown = rows[:limit]
-    t = f"🔎 Топилди: {len(rows)} та рапорт"
-    if len(rows) > limit:
-        t += f"\nПоказано: биринчи {limit} та"
+            if site and normalize(site) not in normalize(row_site):
+                continue
 
-    t += "\n\n"
-    for row in shown:
-        date = row[0] or ""
-        site = row[1] or "Шантиё кўрсатилмаган"
-        workers = row[2] if row[2] not in (None, "") else "—"
-        text = str(row[5] or "").replace("\n", " ")
-        if len(text) > 220:
-            text = text[:220] + "..."
+            all_text = " ".join(str(x or "") for x in row)
+            if keyword and normalize(keyword) not in normalize(all_text):
+                continue
 
-        t += f"📅 {date} | 📍 {site} | 👷 {workers}\n"
-        t += f"{text}\n\n"
+            results.append({
+                "date": row_date,
+                "time": row[time_col] if time_col is not None and time_col < len(row) else "",
+                "site": row_site,
+                "sender": row[sender_col] if sender_col is not None and sender_col < len(row) else "",
+                "workers": row[worker_col] if worker_col is not None and worker_col < len(row) else "",
+                "text": row[text_col] if text_col is not None and text_col < len(row) else "",
+                "message_id": row[message_id_col] if message_id_col is not None and message_id_col < len(row) else "",
+            })
 
-    return t
+    wb.close()
+    return results
 
+def parse_date_range(text):
+    text = text.strip()
+
+    match = re.search(
+        r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s*[-–—]\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})",
+        text
+    )
+    if match:
+        d1 = parse_date(match.group(1))
+        d2 = parse_date(match.group(2))
+        if d1 and d2:
+            return (d2, d1) if d1 > d2 else (d1, d2)
+
+    match = re.search(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}", text)
+    if match:
+        d = parse_date(match.group(0))
+        if d:
+            return d, d
+
+    return None, None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["search_mode"] = False
     await update.message.reply_text(
-        "🏗️ Şantiye Rapor Kontrol Botu\n\n"
-        "Raporlarınızı gruba normal mesaj olarak gönderebilirsiniz.\n"
-        "🔎 Eski raporları tarih, şantiye veya kelime ile arayabilirsiniz.",
-        reply_markup=MENU,
+        "👷 Шантийе Рапорт Контроль Боти\n\n"
+        "Рапорт қидириш учун 🔎 Rapor Ara тугмасини босинг.\n\n"
+        "Мисол:\n01.01.2026 - 05.09.2026\n\n"
+        "Ёки:\nPIRAMIT\n\nЁки:\n05.09.2026 PIRAMIT",
+        reply_markup=MENU
     )
-
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(status_text(), reply_markup=MENU)
+    today = datetime.now(TZ).date()
+    reports = search_excel(start_date=today, end_date=today)
 
+    found_sites = sorted(set(r["site"] for r in reports if r["site"]))
+    missing_sites = [s for s in SITES if s not in found_sites]
 
-async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["search_mode"] = True
-    await update.message.reply_text(
-        "🔎 Рапорт қидириш.\n\n"
-        "Сана ёзинг: 05.09.2026\n"
-        "ёки сана оралиғи: 01.01.2026 - 05.09.2026\n"
-        "ёки шантиё: PIRAMIT, BWC, LOT71\n"
-        "ёки исталган сўзни ёзинг.",
-        reply_markup=ReplyKeyboardMarkup([["❌ Бекор қилиш"]], resize_keyboard=True),
+    text = (
+        "📊 Шантийе Рапорт Ҳолати\n\n"
+        f"📅 Сана: {today.strftime('%d.%m.%Y')}\n\n"
+        f"✅ Рапорт берилган: {len(found_sites)} та\n"
     )
 
+    text += "\n".join(f"• {s}" for s in found_sites) if found_sites else "• Ҳозирча йўқ"
+    text += "\n\n❌ Рапорт берилмаган:\n"
+    text += "\n".join(f"• {s}" for s in missing_sites) if missing_sites else "• Ҳаммаси берилган"
+
+    await update.message.reply_text(text, reply_markup=MENU)
+
+async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔎 Рапорт қидириш.\n\n"
+        "Сана:\n05.09.2026\n\n"
+        "Сана оралиғи:\n01.01.2026 - 05.09.2026\n\n"
+        "Шантиё:\nPIRAMIT\n\n"
+        "Ёки исталган сўзни ёзинг.",
+        reply_markup=MENU
+    )
+    context.user_data["search_mode"] = True
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -267,100 +246,123 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
 
-    if text == "❌ Бекор қилиш":
-        context.user_data["search_mode"] = False
-        await update.message.reply_text("Бекор қилинди.", reply_markup=MENU)
-        return
-
-    if text == "📊 Rapor Durumu":
-        context.user_data["search_mode"] = False
-        await status(update, context)
-        return
-
-    if text == "📥 Excel":
-        context.user_data["search_mode"] = False
-        if not ADMIN_CHAT_ID or str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
-            await update.message.reply_text("⛔ Bu bölüm sadece yönetici içindir.", reply_markup=MENU)
-            return
-
-        ensure_excel()
-        with open(DATA_FILE, "rb") as f:
-            await update.message.reply_document(f, filename="santiye_raporlari.xlsx")
-        return
-
     if text == "🔎 Rapor Ara":
         await search_start(update, context)
         return
 
-    if context.user_data.get("search_mode"):
-        rows = search_history(text)
-        await update.message.reply_text(
-            format_history_results(rows),
-            reply_markup=ReplyKeyboardMarkup(
-                [["🔎 Rapor Ara"], ["📊 Rapor Durumu", "📥 Excel"]],
-                resize_keyboard=True,
-            ),
-        )
+    if text == "📊 Rapor Durumu":
+        await status(update, context)
         return
 
+    if text == "📥 Excel":
+        if not ADMIN_CHAT_ID:
+            await update.message.reply_text("⚠️ ADMIN_CHAT_ID sozlanmagan.")
+            return
+        if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+            await update.message.reply_text("⛔ Бу бўлим фақат администратор учун.")
+            return
+        if not os.path.exists(HISTORY_FILE):
+            await update.message.reply_text("⚠️ Excel файл топилмади.")
+            return
+        with open(HISTORY_FILE, "rb") as f:
+            await update.message.reply_document(f, filename=HISTORY_FILE)
+        return
+
+    if not context.user_data.get("search_mode"):
+        return
+
+    start_date, end_date = parse_date_range(text)
     site = detect_site(text)
-    if not site:
-        return
+    keyword = None if start_date or site else text
 
-    workers = detect_total_workers(text)
-    sender = (
-        update.effective_user.full_name
-        if update.effective_user
-        else "Bilinmiyor"
+    results = search_excel(
+        start_date=start_date,
+        end_date=end_date,
+        site=site,
+        keyword=keyword
     )
 
-    save_report(site, sender, workers, text, update.message.message_id)
-
-    if workers is not None:
+    if not results:
         await update.message.reply_text(
-            f"✅ {site} raporu kaydedildi.\n👷 Toplam: {workers} kişi",
-            reply_markup=MENU,
+            "🔎 Рапорт топилмади.\n\n"
+            "Мисол:\n01.01.2026 - 05.09.2026\n"
+            "ёки\nPIRAMIT\n"
+            "ёки\n05.09.2026",
+            reply_markup=MENU
         )
-    else:
-        await update.message.reply_text(
-            f"✅ {site} raporu kaydedildi.\n⚠️ Toplam işçi sayısı raporda bulunamadı.",
-            reply_markup=MENU,
-        )
+        context.user_data["search_mode"] = False
+        return
 
+    results = results[:100]
+    answer = f"🔎 Топилди: {len(results)} та рапорт\n\n"
+
+    for i, r in enumerate(results, start=1):
+        d = r["date"]
+        d_text = d.strftime("%d.%m.%Y") if isinstance(d, date) else str(d or "")
+        report_text = str(r["text"] or "").strip()
+        if len(report_text) > 500:
+            report_text = report_text[:500] + "..."
+
+        answer += (
+            f"━━━━━━━━━━━━━━\n"
+            f"#{i}\n"
+            f"📅 Сана: {d_text}\n"
+            f"⏰ Вақт: {r['time'] or ''}\n"
+            f"🏗 Шантиё: {r['site'] or '—'}\n"
+            f"👤 Юборувчи: {r['sender'] or '—'}\n"
+            f"👷 Ишчи: {r['workers'] or '—'}\n"
+        )
+        if report_text:
+            answer += f"📝 {report_text}\n"
+
+    await update.message.reply_text(answer, reply_markup=MENU)
+    context.user_data["search_mode"] = False
 
 async def daily_report(context: ContextTypes.DEFAULT_TYPE):
-    if ADMIN_CHAT_ID:
-        await context.bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=status_text(),
-        )
+    if not ADMIN_CHAT_ID:
+        return
 
+    today = datetime.now(TZ).date()
+    reports = search_excel(start_date=today, end_date=today)
+    found_sites = sorted(set(r["site"] for r in reports if r["site"]))
+    missing_sites = [s for s in SITES if s not in found_sites]
+
+    text = (
+        "📊 Кунлик шантиё рапорти\n\n"
+        f"📅 Сана: {today.strftime('%d.%m.%Y')}\n\n"
+        f"✅ Рапорт берган шантиёлар: {len(found_sites)} та\n"
+    )
+
+    if found_sites:
+        text += "\n".join(f"• {s}" for s in found_sites)
+
+    text += "\n\n❌ Рапорт бермаганлар:\n"
+    text += "\n".join(f"• {s}" for s in missing_sites) if missing_sites else "• Ҳаммаси рапорт берган."
+
+    try:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text)
+    except Exception as e:
+        print("Daily report xato:", e)
 
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN .env içine girilmelidir.")
+        raise RuntimeError("BOT_TOKEN Render Environment Variables ichiga kiritilishi kerak.")
 
     ensure_excel()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("durum", status))
+    app.add_handler(CommandHandler("status", status))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.job_queue.run_daily(
         daily_report,
-        time=datetime.now(TZ).replace(
-            hour=REPORT_HOUR,
-            minute=REPORT_MINUTE,
-            second=0,
-            microsecond=0,
-        ).time(),
+        time=datetime(2000, 1, 1, REPORT_HOUR, REPORT_MINUTE, tzinfo=TZ).timetz()
     )
 
-    print("Bot çalışıyor...")
+    print("🤖 Bot ishlayapti...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
