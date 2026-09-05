@@ -298,7 +298,7 @@ def append_report_to_excel(update: Update, site: str, report_text: str):
         wb.close()
         return True
     except Exception as e:
-        print("Raporni Excelga saqlashda xato:", e)
+        print("Rapor Excel'e kaydedilirken hata:", e)
         return False
 
 
@@ -326,11 +326,11 @@ def parse_date_range(text):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👷 Шантийе Рапорт Контроль Боти\n\n"
-        "Рапорт қидириш учун 🔎 Rapor Ara тугмасини босинг.\n\n"
-        "Мисол:\n01.01.2026 - 05.09.2026\n\n"
-        "Ёки:\nPIRAMIT\n\n"
-        "Ёки:\n05.09.2026 PIRAMIT",
+        "👷 Şantiye Rapor Kontrol Botu\n\n"
+        "Rapor aramak için 🔎 Rapor Ara butonuna basın.\n\n"
+        "Örnek:\n01.01.2026 - 05.09.2026\n\n"
+        "Veya:\nPIRAMIT\n\n"
+        "Veya:\n05.09.2026 PIRAMIT",
         reply_markup=MENU
     )
 
@@ -343,25 +343,25 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     missing_sites = [s for s in SITES if normalize(s) not in {normalize(x) for x in found_sites}]
 
     text = (
-        "📊 Шантийе Рапорт Ҳолати\n\n"
-        f"📅 Сана: {today.strftime('%d.%m.%Y')}\n\n"
-        f"✅ Рапорт берилган: {len(found_sites)} та\n"
+        "📊 Şantiye Rapor Durumu\n\n"
+        f"📅 Tarih: {today.strftime('%d.%m.%Y')}\n\n"
+        f"✅ Rapor gönderilen: {len(found_sites)}\n"
     )
 
-    text += "\n".join(f"• {s}" for s in found_sites) if found_sites else "• Ҳозирча йўқ"
-    text += "\n\n❌ Рапорт берилмаган:\n"
-    text += "\n".join(f"• {s}" for s in missing_sites) if missing_sites else "• Ҳаммаси берилган"
+    text += "\n".join(f"• {s}" for s in found_sites) if found_sites else "• Henüz yok"
+    text += "\n\n❌ Rapor gönderilmeyen:\n"
+    text += "\n".join(f"• {s}" for s in missing_sites) if missing_sites else "• Hepsi gönderildi"
 
     await update.message.reply_text(text, reply_markup=MENU)
 
 
 async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔎 Рапорт қидириш.\n\n"
-        "Сана:\n05.09.2026\n\n"
-        "Сана оралиғи:\n01.01.2026 - 05.09.2026\n\n"
-        "Шантиё:\nPIRAMIT\n\n"
-        "Ёки исталган сўзни ёзинг.",
+        "🔎 Rapor arama.\n\n"
+        "Tarih:\n05.09.2026\n\n"
+        "Tarih aralığı:\n01.01.2026 - 05.09.2026\n\n"
+        "Şantiye:\nPIRAMIT\n\n"
+        "Veya istediğiniz kelimeyi yazın.",
         reply_markup=MENU
     )
     context.user_data["search_mode"] = True
@@ -383,14 +383,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📥 Excel":
         if not ADMIN_CHAT_ID:
-            await update.message.reply_text("⚠️ ADMIN_CHAT_ID sozlanmagan.")
+            await update.message.reply_text("⚠️ ADMIN_CHAT_ID ayarlanmamış.")
             return
         if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
-            await update.message.reply_text("⛔ Бу бўлим фақат администратор учун.")
+            await update.message.reply_text("⛔ Bu bölüm sadece yönetici içindir.")
             return
         filename = get_history_file()
         if not filename:
-            await update.message.reply_text("⚠️ Excel файл топилмади.")
+            await update.message.reply_text("⚠️ Excel dosyası bulunamadı.")
             return
         with open(filename, "rb") as f:
             await update.message.reply_document(f, filename=filename)
@@ -411,7 +411,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not results:
             await update.message.reply_text(
-                "🔎 Рапорт топилмади.\n\n"
+                "🔎 Rapor bulunamadı.\n\n"
                 "Мисол:\n01.01.2026 - 05.09.2026\n"
                 "ёки\nPIRAMIT\n"
                 "ёки\n05.09.2026",
@@ -421,7 +421,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         results = results[:100]
-        answer = f"🔎 Топилди: {len(results)} та рапорт\n\n"
+        answer = f"🔎 Bulunan rapor sayısı: {len(results)}\n\n"
 
         for i, r in enumerate(results, start=1):
             d = r["date"]
@@ -433,11 +433,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer += (
                 f"━━━━━━━━━━━━━━\n"
                 f"#{i}\n"
-                f"📅 Сана: {d_text}\n"
-                f"⏰ Вақт: {r['time'] or ''}\n"
-                f"🏗 Шантиё: {r['site'] or '—'}\n"
-                f"👤 Юборувчи: {r['sender'] or '—'}\n"
-                f"👷 Ишчи: {r['workers'] or '—'}\n"
+                f"📅 Tarih: {d_text}\n"
+                f"⏰ Saat: {r['time'] or ''}\n"
+                f"🏗 Şantiye: {r['site'] or '—'}\n"
+                f"👤 Gönderen: {r['sender'] or '—'}\n"
+                f"👷 İşçi: {r['workers'] or '—'}\n"
             )
             if report_text:
                 answer += f"📝 {report_text}\n"
@@ -454,7 +454,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         saved = append_report_to_excel(update, site, text)
         if saved:
             await update.message.reply_text(
-                f"✅ Рапорт қабул қилинди.\n🏗 {site}\n"
+                f"✅ Rapor alındı.\n🏗 {site}\n"
                 f"👤 {update.effective_user.full_name if update.effective_user else '—'}"
             )
         return
@@ -508,15 +508,15 @@ async def reminder_1200(context: ContextTypes.DEFAULT_TYPE):
     for chat_id, sites in by_chat.items():
         sites_text = "\n".join(f"• {s}" for s in sites)
         text = (
-            "🔔 Эслатма!\n\n"
-            "Бугунги рапортни соат 17:30 гача юборишни унутманг.\n\n"
-            "Сизга бириктирилган объектлар:\n"
+            "🔔 Hatırlatma!\n\n"
+            "Bugünkü raporu saat 17:30'a kadar göndermeyi unutmayın.\n\n"
+            "Size bağlı şantiyeler:\n"
             f"{sites_text}"
         )
         try:
             await context.bot.send_message(chat_id=int(chat_id), text=text)
         except Exception as e:
-            print(f"12:00 reminder yuborishda xato ({chat_id}):", e)
+            print(f"12:00 hatırlatması gönderilirken hata ({chat_id}):", e)
 
 
 async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
@@ -525,7 +525,7 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
     ҳар бир объект — ким юборди ёки ким юбормагани.
     """
     if not ADMIN_CHAT_ID:
-        print("ADMIN_CHAT_ID sozlanmagan.")
+        print("ADMIN_CHAT_ID ayarlanmamış.")
         return
 
     today = datetime.now(TZ).date()
@@ -541,10 +541,10 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
     mapping = build_site_sender_map()
 
     lines = [
-        "📊 КУНЛИК РАПОРТ НАЗОРАТИ",
+        "📊 GÜNLÜK RAPOR KONTROLÜ",
         "",
-        f"📅 Сана: {today.strftime('%d.%m.%Y')}",
-        "⏰ Вақт: 17:30",
+        f"📅 Tarih: {today.strftime('%d.%m.%Y')}",
+        "⏰ Saat: 17:30",
         "",
     ]
 
@@ -561,13 +561,13 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
             for r in rows:
                 name = str(r.get("sender") or "").strip()
                 username = str(r.get("username") or "").strip()
-                display = name or username or "Номаълум"
+                display = name or username or "Bilinmiyor"
                 if username and username not in display:
                     display += f" ({username})"
                 if display not in senders:
                     senders.append(display)
 
-            lines.append(f"✅ {site} — юборилди")
+            lines.append(f"✅ {site} — gönderildi")
             for sender in senders:
                 lines.append(f"   👤 {sender}")
         else:
@@ -575,17 +575,17 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
             responsible = mapping.get(site)
             if responsible:
                 name = responsible["sender"]
-                lines.append(f"❌ {site} — юборилмади")
-                lines.append(f"   👤 Масъул: {name}")
+                lines.append(f"❌ {site} — gönderilmedi")
+                lines.append(f"   👤 Sorumlu: {name}")
             else:
-                lines.append(f"❌ {site} — юборилмади")
-                lines.append("   👤 Масъул Telegram ID ҳали сақланмаган")
+                lines.append(f"❌ {site} — gönderilmedi")
+                lines.append("   👤 Sorumlunun Telegram ID'si henüz kayıtlı değil")
 
     lines.extend([
         "",
-        f"📌 Жами объект: {len(SITES)} та",
-        f"✅ Юборилди: {sent_count} та",
-        f"❌ Юборилмади: {missing_count} та",
+        f"📌 Toplam şantiye: {len(SITES)}",
+        f"✅ Gönderildi: {sent_count}",
+        f"❌ Gönderilmedi: {missing_count}",
     ])
 
     try:
@@ -615,7 +615,7 @@ def make_weekly_excel(target_date=None):
         d = r.get("date")
         if site and isinstance(d, date):
             key = (normalize(site), d)
-            sent.setdefault(key, []).append(str(r.get("sender") or "Номаълум"))
+            sent.setdefault(key, []).append(str(r.get("sender") or "Bilinmiyor"))
 
     wb = Workbook()
     summary = wb.active
@@ -759,10 +759,10 @@ async def weekly_excel_report(context: ContextTypes.DEFAULT_TYPE):
             chat_id=ADMIN_CHAT_ID,
             document=stream,
             filename=filename,
-            caption="📥 Ҳафталик рапорт Excel\nКим қайси куни юборган/юбормагани."
+            caption="📥 Haftalık rapor Excel\nKim hangi gün gönderdi/göndermedi."
         )
     except Exception as e:
-        print("Haftalik Excel yuborishda xato:", e)
+        print("Haftalık Excel gönderilirken hata:", e)
 
 
 async def monthly_excel_report(context: ContextTypes.DEFAULT_TYPE):
@@ -780,10 +780,10 @@ async def monthly_excel_report(context: ContextTypes.DEFAULT_TYPE):
             chat_id=ADMIN_CHAT_ID,
             document=stream,
             filename=filename,
-            caption="📥 Ойлик рапорт Excel\nҲар бир объект бўйича бутун ойлик ҳисобот."
+            caption="📥 Aylık rapor Excel\nHer şantiye için ayın tamamına ait rapor."
         )
     except Exception as e:
-        print("Oylik Excel yuborishda xato:", e)
+        print("Aylık Excel gönderilirken hata:", e)
 
 
 
