@@ -39,8 +39,8 @@ ALIASES = {
     "LOT71": "LOT71", "LOT 71": "LOT71",
     "SKP": "SKP",
     "STADIUM": "STADYUM", "STADYUM": "STADYUM",
-    "PIRAMIT": "PİRAMİТ", "PİRAMİT": "PİРАМИТ",
-    "PIRAMIT TOWER": "PİРАМИТ", "PİRAMİT TOWER": "PİРАМИТ",
+    "PIRAMIT": "PİRAMİT", "PİRAMİT": "PİRAMİT",
+    "PIRAMIT TOWER": "PİRAMİT", "PİRAMİT TOWER": "PİRAMİT",
     "BWC": "BWC",
     "KOKSARAY": "KÖKSARAY", "KÖKSARAY": "KÖKSARAY",
     "MPP": "MPP", "MOS": "MOS", "RMC": "RMC", "TYM": "TYM",
@@ -160,7 +160,7 @@ def search_excel(start_date=None, end_date=None, site=None, keyword=None):
             if site_col is not None and site_col < len(row):
                 row_site = str(row[site_col] or "").strip()
 
-            if site and normalize(site) not in normalize(row_site):
+            if site and normalize(site) != normalize(row_site) and normalize(site) not in normalize(row_site):
                 continue
 
             all_text = " ".join(str(x or "") for x in row)
