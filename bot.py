@@ -49,7 +49,7 @@ MONTHLY_MINUTE = int(os.getenv("MONTHLY_MINUTE", "30"))
 SITES = [
     "DATA CENTER", "DMC", "LOT13", "LOT71", "SKP", "STADYUM",
     "BWC", "KÖKSARAY", "MPP", "MOS", "PİRAMİT", "RMC", "TYM",
-    "YHP", "ELLIPSE GARDEN"
+    "YHP"
 ]
 
 ALIASES = {
@@ -64,7 +64,7 @@ ALIASES = {
     "BWC": "BWC",
     "KOKSARAY": "KÖKSARAY", "KÖKSARAY": "KÖKSARAY",
     "MPP": "MPP", "MOS": "MOS", "RMC": "RMC", "TYM": "TYM",
-    "YHP": "YHP", "ELLIPSE GARDEN": "ELLIPSE GARDEN",
+    "YHP": "YHP", "ELLIPSE GARDEN": "DMC",
 }
 
 MENU = ReplyKeyboardMarkup(
@@ -222,6 +222,10 @@ def search_excel(start_date=None, end_date=None, site=None, keyword=None):
             row_site = ""
             if site_col is not None and site_col < len(row):
                 row_site = str(row[site_col] or "").strip()
+
+            detected_row_site = detect_site(row_site)
+            if detected_row_site:
+                row_site = detected_row_site
 
             if site and normalize(site) != normalize(row_site):
                 continue
