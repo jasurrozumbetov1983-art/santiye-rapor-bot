@@ -29,15 +29,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
-HISTORY_FILE = "raporlar_tarih_2026_2 .xlsx"
+HISTORY_FILE = "raporlar_yangi.xlsx"
 LIVE_FILE = "raporlar.xlsx"
 
+# Faqat yangi davrdagi raporlar saqlanadi.
+# Eski Excel fayllari ataylab o'qilmaydi.
 HISTORY_FILES = [
-    "raporlar_tarih_2026_2 .xlsx",
-    "raporlar_tarih_2026_2.xlsx",
-    "raporlar_tarih_2026_2(1).xlsx",
-    "raporlar_2026_2.xlsx",
-    "raporlar.xlsx",
+    "raporlar_yangi.xlsx",
 ]
 
 REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", "12"))
@@ -208,9 +206,8 @@ def find_column(headers, names):
 
 
 def get_history_file():
-    for filename in HISTORY_FILES:
-        if os.path.exists(filename):
-            return filename
+    if os.path.exists(HISTORY_FILE):
+        return HISTORY_FILE
     return None
 
 
