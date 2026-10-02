@@ -18,6 +18,13 @@ from telegram.ext import (
 
 load_dotenv()
 
+REPORT_NOTE = """📝 Not: Şantiyenin dili verdiği rapordur; raporu olmayan iş tamamlanmış sayılmaz. ⚠️
+Lütfen günlük raporlarınızı zamanında iletiniz."""
+
+REPORT_NOTE_2 = """📊
+Bunca çabaya rağmen rapor iletmeyen şantiyeler, lütfen rapor düzenine özen göstersin. 🙏
+Unutmayın: İşi yapmak cesarettir, raporlamak ise disiplindir. ⚠️"""
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")  # Группа, куда 17:30 да отправляется общий отчёт
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
@@ -48,7 +55,7 @@ MONTHLY_MINUTE = int(os.getenv("MONTHLY_MINUTE", "30"))
 
 SITES = [
     "DATA CENTER", "DMC", "LOT13", "LOT71", "SKP", "STADYUM",
-    "BWC", "KÖKSARAY", "MPP", "MOS", "PİRAMİT", "RMC", "TYM",
+    "BWC", "KÖKSARAY", "MMP", "MOS", "PİRAMİT", "RMC", "TYM",
     "YHP"
 ]
 
@@ -63,7 +70,7 @@ ALIASES = {
     "PIRAMIT TOWER": "PİRAMİT", "PİRAMİT TOWER": "PİRAMİT",
     "BWC": "BWC",
     "KOKSARAY": "KÖKSARAY", "KÖKSARAY": "KÖKSARAY",
-    "MPP": "MPP", "MOS": "MOS", "RMC": "RMC", "TYM": "TYM",
+    "MPP": "MMP", "MMP": "MMP", "MOS": "MOS", "RMC": "RMC", "TYM": "TYM",
     "YHP": "YHP", "ELLIPSE GARDEN": "DMC",
 }
 
@@ -83,6 +90,44 @@ def normalize(text):
     }.items():
         text = text.replace(old, new)
     return text.strip()
+
+
+
+# Rasmda berilgan mas'ullar. DMC va ELLIPSE GARDEN bitta obyekt.
+SITE_RESPONSIBLE_USERNAMES = {
+    "BWC": "@YSF1434",
+    "DMC": "@uzyusufmutlu",
+    "MMP": "@Orhan_Ceylan",
+    "MOS": "@Orhan_Ceylan",
+    "RMC": "@Orhan_Ceylan",
+    "TYM": "@Orhan_Ceylan",
+    "YHP": "@Orhan_Ceylan",
+}
+
+def canonical_site_name(site):
+    s = normalize(site or "")
+    aliases = {
+        "ELLIPSE GARDEN": "DMC",
+        "DMC ELLIPSE GARDEN": "DMC",
+        "DMCELLIPSEGARDEN": "DMC",
+        "MPP": "MMP",
+    }
+    return aliases.get(s, site.strip() if isinstance(site, str) else site)
+
+def responsible_username(site, mapping=None):
+    canonical = canonical_site_name(site)
+    if canonical in SITE_RESPONSIBLE_USERNAMES:
+        return SITE_RESPONSIBLE_USERNAMES[canonical]
+    if mapping:
+        info = mapping.get(canonical) or mapping.get(site)
+        if info:
+            username = str(info.get("username") or "").strip()
+            sender = str(info.get("sender") or "").strip()
+            if username:
+                return username if username.startswith("@") else "@" + username
+            if sender:
+                return sender
+    return "Mas'ul aniqlanmadi"
 
 
 def detect_site(text):
@@ -128,7 +173,7 @@ def find_column(headers, names):
 
 
 def ensure_excel():
-    filename = HISTORY_FILE
+    filename = get_history_file() or HISTORY_FILE
     if os.path.exists(filename):
         # Старый Excel мог быть создан без Telegram ID.
         # Добавляем недостающие колонки, не удаляя старые данные.
@@ -162,171 +207,113 @@ def ensure_excel():
 
 
 def get_history_file():
-    for filename in HISTORY_FILES:
-        if os.path.exists(filename):
-            return filename
-    return None
+    return HISTORY_FILE if os.path.exists(HISTORY_FILE) else None
+
+
+def get_history_files():
+    files = []
+    for filename in [HISTORY_FILE] + HISTORY_FILES:
+        if filename not in files and os.path.exists(filename):
+            files.append(filename)
+    return files
 
 
 def search_excel(start_date=None, end_date=None, site=None, keyword=None):
-    filename = get_history_file()
-    if not filename:
-        print("Excel topilmadi. Qidirilgan fayllar:", HISTORY_FILES)
-        return []
-
-    try:
-        wb = load_workbook(filename, read_only=True, data_only=True)
-    except Exception as e:
-        print("Excel ochishda xato:", e)
+    filenames = get_history_files()
+    if not filenames:
+        print("Excel topilmadi:", HISTORY_FILES)
         return []
 
     results = []
-    sheets = [wb["Raporlar"]] if "Raporlar" in wb.sheetnames else wb.worksheets
+    seen = set()
 
-    for ws in sheets:
-        rows = ws.iter_rows(values_only=True)
+    for filename in filenames:
         try:
-            headers = next(rows)
-        except StopIteration:
+            wb = load_workbook(filename, read_only=True, data_only=True)
+        except Exception as e:
+            print(f"Excel ochishda xato ({filename}): {e}")
             continue
 
-        date_col = find_column(headers, ["Tarih", "Sana", "Date", "Дата"])
-        time_col = find_column(headers, ["Saat", "Vaqt", "Time", "Время"])
-        site_col = find_column(headers, ["Şantiye", "Shantiye", "Шантиё"])
-        sender_col = find_column(headers, ["Gönderen", "Yuboruvchi", "Sender", "Отправитель"])
-        worker_col = find_column(headers, ["İşçi Sayısı", "Ishchi Sonı", "Рабочие", "Количество рабочих"])
-        text_col = find_column(headers, [
-            "Rapor Metni", "Rapor", "Hisobot", "Report", "Сообщение",
-            "Toliq_raport", "Toliq raport"
-        ])
-        message_id_col = find_column(headers, ["Mesaj ID", "Message ID", "ID"])
-        chat_id_col = find_column(headers, ["Telegram Chat ID", "Chat ID"])
-        user_id_col = find_column(headers, ["Telegram User ID", "User ID"])
-        username_col = find_column(headers, ["Username", "Telegram Username"])
+        try:
+            sheets = [wb["Raporlar"]] if "Raporlar" in wb.sheetnames else wb.worksheets
 
-        for row in rows:
-            if not row:
-                continue
+            for ws in sheets:
+                rows = ws.iter_rows(values_only=True)
+                try:
+                    headers = next(rows)
+                except StopIteration:
+                    continue
 
-            row_date = None
-            if date_col is not None and date_col < len(row):
-                row_date = parse_date(row[date_col])
+                date_col = find_column(headers, ["Tarih", "Sana", "Date", "Дата"])
+                time_col = find_column(headers, ["Saat", "Vaqt", "Time", "Время"])
+                site_col = find_column(headers, ["Şantiye", "Shantiye", "Шантиё"])
+                sender_col = find_column(headers, ["Gönderen", "Yuboruvchi", "Sender", "Отправитель"])
+                worker_col = find_column(headers, ["İşçi Sayısı", "Ishchi Sonı", "Рабочие", "Количество рабочих"])
+                text_col = find_column(headers, [
+                    "Rapor Metni", "Rapor", "Hisobot", "Report", "Сообщение",
+                    "Toliq_raport", "Toliq raport"
+                ])
+                message_id_col = find_column(headers, ["Mesaj ID", "Message ID", "ID"])
+                chat_id_col = find_column(headers, ["Telegram Chat ID", "Chat ID"])
+                user_id_col = find_column(headers, ["Telegram User ID", "User ID"])
+                username_col = find_column(headers, ["Username", "Telegram Username"])
 
-            if (start_date or end_date) and row_date is None:
-                continue
-            if start_date and row_date < start_date:
-                continue
-            if end_date and row_date > end_date:
-                continue
+                for row in rows:
+                    if not row:
+                        continue
 
-            row_site = ""
-            if site_col is not None and site_col < len(row):
-                row_site = str(row[site_col] or "").strip()
+                    row_date = parse_date(row[date_col]) if date_col is not None and date_col < len(row) else None
 
-            detected_row_site = detect_site(row_site)
-            if detected_row_site:
-                row_site = detected_row_site
+                    if (start_date or end_date) and row_date is None:
+                        continue
+                    if start_date and row_date < start_date:
+                        continue
+                    if end_date and row_date > end_date:
+                        continue
 
-            if site and normalize(site) != normalize(row_site):
-                continue
+                    row_site = str(row[site_col] or "").strip() if site_col is not None and site_col < len(row) else ""
+                    row_site = canonical_site_name(row_site)
 
-            all_text = " ".join(str(x or "") for x in row)
-            if keyword and normalize(keyword) not in normalize(all_text):
-                continue
+                    if site and normalize(canonical_site_name(site)) != normalize(row_site):
+                        continue
 
-            results.append({
-                "date": row_date,
-                "time": row[time_col] if time_col is not None and time_col < len(row) else "",
-                "site": row_site,
-                "sender": row[sender_col] if sender_col is not None and sender_col < len(row) else "",
-                "workers": row[worker_col] if worker_col is not None and worker_col < len(row) else "",
-                "text": row[text_col] if text_col is not None and text_col < len(row) else "",
-                "message_id": row[message_id_col] if message_id_col is not None and message_id_col < len(row) else "",
-                "chat_id": row[chat_id_col] if chat_id_col is not None and chat_id_col < len(row) else "",
-                "user_id": row[user_id_col] if user_id_col is not None and user_id_col < len(row) else "",
-                "username": row[username_col] if username_col is not None and username_col < len(row) else "",
-            })
+                    all_text = " ".join(str(x or "") for x in row)
+                    if keyword and normalize(keyword) not in normalize(all_text):
+                        continue
 
-    wb.close()
+                    message_id = row[message_id_col] if message_id_col is not None and message_id_col < len(row) else ""
+                    text_value = row[text_col] if text_col is not None and text_col < len(row) else ""
+                    sender_value = row[sender_col] if sender_col is not None and sender_col < len(row) else ""
+                    username_value = row[username_col] if username_col is not None and username_col < len(row) else ""
+
+                    key = str(message_id).strip() if message_id not in (None, "") else (
+                        row_date,
+                        str(row[time_col] if time_col is not None and time_col < len(row) else ""),
+                        normalize(row_site),
+                        normalize(sender_value),
+                        normalize(text_value),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
+                    results.append({
+                        "date": row_date,
+                        "time": row[time_col] if time_col is not None and time_col < len(row) else "",
+                        "site": row_site,
+                        "sender": sender_value,
+                        "workers": row[worker_col] if worker_col is not None and worker_col < len(row) else "",
+                        "text": text_value,
+                        "message_id": message_id,
+                        "chat_id": row[chat_id_col] if chat_id_col is not None and chat_id_col < len(row) else "",
+                        "user_id": row[user_id_col] if user_id_col is not None and user_id_col < len(row) else "",
+                        "username": username_value,
+                    })
+        finally:
+            wb.close()
+
+    results.sort(key=lambda r: (r.get("date") or date.min, str(r.get("time") or "")), reverse=True)
     return results
-
-
-def append_report_to_excel(update: Update, site: str, report_text: str):
-    """
-    Сохраняет новый рапорт и Telegram ID отправителя.
-    Это нужно для персонального напоминания в 12:00.
-    """
-    filename = HISTORY_FILE
-    ensure_excel()
-
-    try:
-        wb = load_workbook(filename)
-        ws = wb["Raporlar"] if "Raporlar" in wb.sheetnames else wb.active
-        headers = [c.value for c in ws[1]]
-
-        # Добавляем недостающие колонки
-        for h in ["Telegram Chat ID", "Telegram User ID", "Username"]:
-            if h not in headers:
-                ws.cell(row=1, column=ws.max_column + 1, value=h)
-                headers = [c.value for c in ws[1]]
-
-        def col(name):
-            return headers.index(name) + 1
-
-        now = datetime.now(TZ)
-        user = update.effective_user
-        chat = update.effective_chat
-
-        row = ws.max_row + 1
-        values = {
-            "Tarih": now.date(),
-            "Saat": now.strftime("%H:%M:%S"),
-            "Şantiye": site,
-            "Gönderen": (
-                user.full_name if user else "Noma'lum"
-            ),
-            "Rapor Metni": report_text,
-            "Mesaj ID": update.message.message_id if update.message else "",
-            "Telegram Chat ID": chat.id if chat else "",
-            "Telegram User ID": user.id if user else "",
-            "Username": (
-                f"@{user.username}" if user and user.username else ""
-            ),
-        }
-
-        for key, value in values.items():
-            if key in headers:
-                ws.cell(row=row, column=col(key), value=value)
-
-        wb.save(filename)
-        wb.close()
-        return True
-    except Exception as e:
-        print("Rapor Excel'e kaydedilirken hata:", e)
-        return False
-
-
-def parse_date_range(text):
-    text = text.strip()
-
-    match = re.search(
-        r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s*[-–—]\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})",
-        text
-    )
-    if match:
-        d1 = parse_date(match.group(1))
-        d2 = parse_date(match.group(2))
-        if d1 and d2:
-            return (d2, d1) if d1 > d2 else (d1, d2)
-
-    match = re.search(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}", text)
-    if match:
-        d = parse_date(match.group(0))
-        if d:
-            return d, d
-
-    return None, None
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -354,7 +341,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text += "\n".join(f"• {s}" for s in found_sites) if found_sites else "• Henüz yok"
     text += "\n\n❌ Rapor gönderilmeyen:\n"
-    text += "\n".join(f"• {s}" for s in missing_sites) if missing_sites else "• Hepsi gönderildi"
+    if missing_sites:
+        text += "\n".join(
+            f"• {canonical_site_name(s)} ({responsible_username(s)})"
+            for s in missing_sites
+        )
+    else:
+        text += "• Hepsi gönderildi"
 
     await update.message.reply_text(text, reply_markup=MENU)
 
@@ -503,7 +496,7 @@ async def reminder_1200(context: ContextTypes.DEFAULT_TYPE):
 
     by_chat = {}
     for site in SITES:
-        info = mapping.get(site)
+        info = mapping.get(canonical_site_name(site))
         if not info:
             continue
         chat_id = info["chat_id"]
@@ -576,14 +569,12 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
                 lines.append(f"   👤 {sender}")
         else:
             missing_count += 1
-            responsible = mapping.get(site)
+            responsible = mapping.get(canonical_site_name(site))
+            lines.append(f"❌ {canonical_site_name(site)} — gönderilmedi")
             if responsible:
-                name = responsible["sender"]
-                lines.append(f"❌ {site} — gönderilmedi")
-                lines.append(f"   👤 Sorumlu: {name}")
+                lines.append(f"   👤 Sorumlu: {responsible_username(site, mapping)}")
             else:
-                lines.append(f"❌ {site} — gönderilmedi")
-                lines.append("   👤 Sorumlunun Telegram ID'si henüz kayıtlı değil")
+                lines.append(f"   👤 Sorumlu: {responsible_username(site)}")
 
     lines.extend([
         "",
@@ -602,73 +593,117 @@ async def daily_report_1730(context: ContextTypes.DEFAULT_TYPE):
 
 
 def make_weekly_excel(target_date=None):
-    """Ўтган душанба-якшанба даври учун: ҳар бир объект ва юборилмаган кунлар."""
     if target_date is None:
         target_date = datetime.now(TZ).date()
 
-    # Ҳафта душанба кунидан бошланади.
     monday = target_date - timedelta(days=target_date.weekday())
     sunday = monday + timedelta(days=6)
 
     reports = search_excel(start_date=monday, end_date=sunday)
 
-    # Ҳар объект ва сана бўйича ким юборганини сақлаймиз.
-    sent = {}
+    sent = set()
     for r in reports:
-        site = str(r.get("site") or "").strip()
         d = r.get("date")
+        site = canonical_site_name(str(r.get("site") or "").strip())
         if site and isinstance(d, date):
-            key = (normalize(site), d)
-            sent.setdefault(key, []).append(str(r.get("sender") or "Bilinmiyor"))
+            sent.add((normalize(site), d))
 
-    wb = Workbook()
-    summary = wb.active
-    summary.title = "Haftalik xulosa"
-    summary.append(["Obyekt", "Masul", "Yuborilgan kunlar", "Yuborilmagan kunlar", "Holat"])
-
-    details = {}
     mapping = build_site_sender_map()
 
-    for site in SITES:
-        missing = []
-        sent_days = []
-        for i in range(7):
-            d = monday + timedelta(days=i)
-            rows = sent.get((normalize(site), d), [])
-            if rows:
-                sent_days.append(d.strftime("%d.%m"))
-            else:
-                missing.append(d.strftime("%d.%m"))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Yuborilmagan raporlar"
+    ws.append(["Sana", "Obyekt", "Mas'ul", "Telegram", "Holat"])
 
-        responsible = mapping.get(site, {}).get("sender", "Telegram ID hali saqlanmagan")
-        status_text = "To'liq" if not missing else "Kamchilik bor"
+    missing_rows = []
 
-        summary.append([
-            site,
-            responsible,
-            ", ".join(sent_days) if sent_days else "—",
-            ", ".join(missing) if missing else "—",
-            status_text
-        ])
-
-    ws = wb.create_sheet("Kunlik tafsilot")
-    ws.append(["Sana", "Obyekt", "Holat", "Yuboruvchi"])
     for i in range(7):
         d = monday + timedelta(days=i)
-        for site in SITES:
-            rows = sent.get((normalize(site), d), [])
-            if rows:
-                for sender in rows:
-                    ws.append([d, site, "Yuborildi", sender])
-            else:
-                responsible = mapping.get(site, {}).get("sender", "—")
-                ws.append([d, site, "Yuborilmadi", responsible])
+        for raw_site in SITES:
+            site = canonical_site_name(raw_site)
+            if (normalize(site), d) in sent:
+                continue
+
+            info = mapping.get(site, {}) if isinstance(mapping, dict) else {}
+            sender = str(info.get("sender") or "Mas'ul aniqlanmadi").strip()
+            username = responsible_username(site, mapping)
+
+            ws.append([d, site, sender, username, "❌ Yuborilmadi"])
+            missing_rows.append({
+                "date": d,
+                "site": site,
+                "sender": sender,
+                "username": username,
+            })
+
+    if not missing_rows:
+        ws.append(["", "", "", "", "✅ Bu hafta barcha raporlar yuborilgan"])
+
+    for col, width in {"A": 14, "B": 20, "C": 28, "D": 24, "E": 20}.items():
+        ws.column_dimensions[col].width = width
 
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
-    return stream, f"Haftalik_Raport_{monday.strftime('%d.%m.%Y')}_{sunday.strftime('%d.%m.%Y')}.xlsx"
 
+    filename = f"Yuborilmagan_Raporlar_{monday.strftime('%d.%m.%Y')}_{sunday.strftime('%d.%m.%Y')}.xlsx"
+    return stream, filename, missing_rows
+
+
+async def weekly_excel_report(context: ContextTypes.DEFAULT_TYPE):
+    if not ADMIN_CHAT_ID:
+        print("ADMIN_CHAT_ID ayarlanmamış.")
+        return
+
+    try:
+        stream, filename, missing_rows = make_weekly_excel(datetime.now(TZ).date())
+
+        await context.bot.send_document(
+            chat_id=ADMIN_CHAT_ID,
+            document=stream,
+            filename=filename,
+            caption="📥 Haftalık eksik raporlar Excel — sadece gönderilmeyen günler."
+        )
+
+        if not missing_rows:
+            msg = (
+                "🔔 HAFTALIK RAPOR KONTROLÜ\n\n"
+                "✅ Bu hafta tüm şantiyelerin günlük raporları eksiksiz gönderildi."
+            )
+        else:
+            grouped = {}
+            for item in missing_rows:
+                key = item["username"]
+                grouped.setdefault(key, []).append(item)
+
+            lines = [
+                "🔔 HAFTALIK RAPOR HATIRLATMASI",
+                "",
+                "Aşağıdaki raporlar gönderilmemiştir.",
+                "Lütfen sorumlu kişiler eksik günlerin raporlarını tamamlasın.",
+                ""
+            ]
+
+            for responsible, items in grouped.items():
+                lines.append(f"👤 {responsible}")
+                by_site = {}
+                for item in items:
+                    by_site.setdefault(item["site"], []).append(item["date"].strftime("%d.%m.%Y"))
+                for site, dates in by_site.items():
+                    lines.append(f"• {site}: {', '.join(dates)}")
+                lines.append("")
+
+            lines.extend([
+                "📝 Not: Şantiyenin dili verdiği rapordur; raporu olmayan iş tamamlanmış sayılmaz. ⚠️",
+                "Lütfen günlük raporlarınızı zamanında iletiniz.",
+                "",
+                "📊 Bunca çabaya rağmen rapor iletmeyen şantiyeler, lütfen rapor düzenine özen göstersin. 🙏",
+                "Unutmayın: İşi yapmak cesarettir, raporlamak ise disiplindir. ⚠️",
+            ])
+
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text="\n".join(lines))
+    except Exception as e:
+        print("Haftalık Excel/hatırlatma hatası:", e)
 
 def make_monthly_excel(target_date=None):
     """Ойлик Excel: ҳар бир объект, ҳар бир кун, юборилган/юборилмаган ва масъул."""
@@ -753,22 +788,6 @@ def make_monthly_excel(target_date=None):
     return stream, f"Oylik_Raport_{first_day.strftime('%m.%Y')}.xlsx"
 
 
-async def weekly_excel_report(context: ContextTypes.DEFAULT_TYPE):
-    if not ADMIN_CHAT_ID:
-        return
-
-    try:
-        stream, filename = make_weekly_excel(datetime.now(TZ).date())
-        await context.bot.send_document(
-            chat_id=ADMIN_CHAT_ID,
-            document=stream,
-            filename=filename,
-            caption="📥 Haftalık rapor Excel\nKim hangi gün gönderdi/göndermedi."
-        )
-    except Exception as e:
-        print("Haftalık Excel gönderilirken hata:", e)
-
-
 async def monthly_excel_report(context: ContextTypes.DEFAULT_TYPE):
     if not ADMIN_CHAT_ID:
         return
@@ -838,7 +857,7 @@ def main():
             WEEKLY_HOUR, WEEKLY_MINUTE,
             tzinfo=TZ
         ).timetz(),
-        days=(6,)
+        days=(0,)  # PTB v20+: 0 = якшанба
     )
 
     # Ҳар куни 18:30 да текширади; фақат ойнинг охирги куни Excel юборади.
