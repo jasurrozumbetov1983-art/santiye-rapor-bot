@@ -510,7 +510,12 @@ async def is_group_admin(update, context):
     if not user or not chat:
         return False
 
-    # Excel tugmasi faqat guruh administratorlari uchun.
+    # Avval ADMIN_CHAT_ID orqali ruxsat beramiz.
+    # Bu sizning /chatid orqali olingan guruh ID'ingiz.
+    if ADMIN_CHAT_ID is not None and chat.id == ADMIN_CHAT_ID:
+        return True
+
+    # Qo'shimcha xavfsizlik: Telegram'dagi haqiqiy admin statusini tekshiramiz.
     if chat.type not in ("group", "supergroup"):
         return False
 
