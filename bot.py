@@ -29,10 +29,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
-HISTORY_FILE = "raporlar_tarih_2026_2.xlsx"
+HISTORY_FILE = "raporlar_tarih_2026_2 .xlsx"
 LIVE_FILE = "raporlar.xlsx"
 
 HISTORY_FILES = [
+    "raporlar_tarih_2026_2 .xlsx",
     "raporlar_tarih_2026_2.xlsx",
     "raporlar_tarih_2026_2(1).xlsx",
     "raporlar_2026_2.xlsx",
@@ -207,8 +208,9 @@ def find_column(headers, names):
 
 
 def get_history_file():
-    if os.path.exists(HISTORY_FILE):
-        return HISTORY_FILE
+    for filename in HISTORY_FILES:
+        if os.path.exists(filename):
+            return filename
     return None
 
 
