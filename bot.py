@@ -607,6 +607,14 @@ def build_excel_bytes():
 
 async def is_group_admin(update, context):
     user = update.effective_user
+    message = update.effective_message
+
+    # Anonymous group admins send messages as the group itself.
+    # Allow this only for the configured staff group.
+    if message and getattr(message, "sender_chat", None):
+        sender_chat = message.sender_chat
+        if ADMIN_CHAT_ID is not None and sender_chat.id == ADMIN_CHAT_ID:
+            return True
 
     if not user or not ADMIN_CHAT_ID:
         return False
