@@ -20,7 +20,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
 # Target Telegram group (KOC Elektrik Departmani STAFF)
-TARGET_GROUP_CHAT_ID = 1028488586
+TARGET_GROUP_CHAT_ID = -1003291011198
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Tashkent").strip()
 TZ = ZoneInfo(TIMEZONE)
 
