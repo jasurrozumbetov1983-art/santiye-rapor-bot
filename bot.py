@@ -623,7 +623,9 @@ async def is_group_admin(update, context):
 
     # Normal (non-anonymous) user: verify current admin/owner status
     # in the target staff group.
-    check_chat_id = ADMIN_CHAT_ID or TARGET_GROUP_CHAT_ID
+    # Always check the real current staff group. ADMIN_CHAT_ID may contain
+    # the old group ID and must not be used for admin verification.
+    check_chat_id = TARGET_GROUP_CHAT_ID
     if not user:
         return False
 
