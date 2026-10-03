@@ -608,22 +608,20 @@ def build_excel_bytes():
 async def is_group_admin(update, context):
     user = update.effective_user
 
-    if not user or ADMIN_CHAT_ID is None:
+    if not user or not ADMIN_CHAT_ID:
         return False
 
-    # Muhim: Excel tugmasi guruh ichidan ham, botning shaxsiy chatidan ham
-    # ishlashi kerak. Shuning uchun effective_chat emas, doim asosiy
-    # KOC Elektrik Departmani STAFF guruhidagi adminlik tekshiriladi.
     try:
         member = await context.bot.get_chat_member(
             chat_id=ADMIN_CHAT_ID,
             user_id=user.id,
         )
 
-        status = str(member.status).lower()
-        is_admin = status in ("administrator", "creator", "owner")
-        print(f"Excel admin check: user_id={user.id}, status={status}, is_admin={is_admin}")
-        return is_admin
+        return str(member.status).lower() in (
+            "administrator",
+            "creator",
+            "owner",
+        )
 
     except Exception as exc:
         print(f"❌ Admin tekshirish xatosi: {exc}")
