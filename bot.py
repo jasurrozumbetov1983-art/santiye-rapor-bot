@@ -606,18 +606,18 @@ def build_excel_bytes():
 
 
 async def is_group_admin(update, context):
+    """Return True only for users who are actual admins of the current group.
+
+    ADMIN_CHAT_ID is intentionally NOT used as an authorization shortcut here:
+    a group chat ID identifies the whole group, not an individual administrator.
+    Telegram is queried for the requesting user's current admin status.
+    """
     user = update.effective_user
     chat = update.effective_chat
 
     if not user or not chat:
         return False
 
-    # Avval ADMIN_CHAT_ID orqali ruxsat beramiz.
-    # Bu sizning /chatid orqali olingan guruh ID'ingiz.
-    if ADMIN_CHAT_ID is not None and chat.id == ADMIN_CHAT_ID:
-        return True
-
-    # Qo'shimcha xavfsizlik: Telegram'dagi haqiqiy admin statusini tekshiramiz.
     if chat.type not in ("group", "supergroup"):
         return False
 
