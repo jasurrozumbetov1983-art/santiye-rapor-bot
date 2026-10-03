@@ -606,24 +606,20 @@ def build_excel_bytes():
 
 
 async def is_group_admin(update, context):
+    """Return True for any admin/owner of the configured Telegram group.
+
+    The Excel button may be pressed from the group OR from a private chat
+    with the bot. In both cases, check the requesting user's real admin
+    status in ADMIN_CHAT_ID (the configured staff group).
+    """
     user = update.effective_user
-    chat = update.effective_chat
 
-    if not user or not chat:
-        return False
-
-    # Avval ADMIN_CHAT_ID orqali ruxsat beramiz.
-    # Bu sizning /chatid orqali olingan guruh ID'ingiz.
-    if ADMIN_CHAT_ID is not None and chat.id == ADMIN_CHAT_ID:
-        return True
-
-    # Qo'shimcha xavfsizlik: Telegram'dagi haqiqiy admin statusini tekshiramiz.
-    if chat.type not in ("group", "supergroup"):
+    if not user or not ADMIN_CHAT_ID:
         return False
 
     try:
         member = await context.bot.get_chat_member(
-            chat_id=chat.id,
+            chat_id=ADMIN_CHAT_ID,
             user_id=user.id,
         )
 
