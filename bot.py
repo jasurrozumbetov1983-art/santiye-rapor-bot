@@ -606,28 +606,24 @@ def build_excel_bytes():
 
 
 async def is_group_admin(update, context):
-    """Return True for any admin/owner of the configured Telegram group.
-
-    The Excel button may be pressed from the group OR from a private chat
-    with the bot. In both cases, check the requesting user's real admin
-    status in ADMIN_CHAT_ID (the configured staff group).
-    """
     user = update.effective_user
 
-    if not user or not ADMIN_CHAT_ID:
+    if not user or ADMIN_CHAT_ID is None:
         return False
 
+    # Muhim: Excel tugmasi guruh ichidan ham, botning shaxsiy chatidan ham
+    # ishlashi kerak. Shuning uchun effective_chat emas, doim asosiy
+    # KOC Elektrik Departmani STAFF guruhidagi adminlik tekshiriladi.
     try:
         member = await context.bot.get_chat_member(
             chat_id=ADMIN_CHAT_ID,
             user_id=user.id,
         )
 
-        return str(member.status).lower() in (
-            "administrator",
-            "creator",
-            "owner",
-        )
+        status = str(member.status).lower()
+        is_admin = status in ("administrator", "creator", "owner")
+        print(f"Excel admin check: user_id={user.id}, status={status}, is_admin={is_admin}")
+        return is_admin
 
     except Exception as exc:
         print(f"❌ Admin tekshirish xatosi: {exc}")
