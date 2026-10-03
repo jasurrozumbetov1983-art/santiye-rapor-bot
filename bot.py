@@ -19,6 +19,8 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
+# Target Telegram group (KOC Elektrik Departmani STAFF)
+TARGET_GROUP_CHAT_ID = 1028488586
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Tashkent").strip()
 TZ = ZoneInfo(TIMEZONE)
 
@@ -609,19 +611,25 @@ async def is_group_admin(update, context):
     user = update.effective_user
     message = update.effective_message
 
-    # Anonymous group admins send messages as the group itself.
-    # Allow this only for the configured staff group.
+    # Anonymous admin mode: Telegram hides the real user and sends the
+    # message as the group (sender_chat). The known staff group is allowed.
     if message and getattr(message, "sender_chat", None):
         sender_chat = message.sender_chat
-        if ADMIN_CHAT_ID is not None and sender_chat.id == ADMIN_CHAT_ID:
+        if (
+            getattr(sender_chat, "type", None) in ("group", "supergroup")
+            and sender_chat.id == TARGET_GROUP_CHAT_ID
+        ):
             return True
 
-    if not user or not ADMIN_CHAT_ID:
+    # Normal (non-anonymous) user: verify current admin/owner status
+    # in the target staff group.
+    check_chat_id = ADMIN_CHAT_ID or TARGET_GROUP_CHAT_ID
+    if not user:
         return False
 
     try:
         member = await context.bot.get_chat_member(
-            chat_id=ADMIN_CHAT_ID,
+            chat_id=check_chat_id,
             user_id=user.id,
         )
 
